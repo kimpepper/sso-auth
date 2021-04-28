@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"time"
 
@@ -35,11 +34,11 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-		var ssoidcRetryer aws.Retryer
-		ssoidcRetryer = retry.NewStandard()
-		ssoidcRetryer = retry.AddWithErrorCodes(ssoidcRetryer, "AuthorizationPendingException")
 		ssooidcClient := ssooidc.NewFromConfig(cfg, func(opts *ssooidc.Options) {
-			opts.Retryer = ssoidcRetryer
+			opts.Retryer = retry.AddWithErrorCodes(retry.NewStandard(func(opts *retry.StandardOptions) {
+				opts.MaxAttempts = 30
+				opts.MaxBackoff = 2 * time.Second
+			}), "AuthorizationPendingException")
 		})
 		tokenCache := cache.NewTokenCache()
 		authoriser := oidc.NewAuthoriser(ssooidcClient, tokenCache)
@@ -49,11 +48,8 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Println(
-			`Attempting to automatically open the SSO authorization page in 
-	your default browser.
-	If the browser does not open or you wish to use a different 
-	device to authorize this request, open the following URL:`)
+		fmt.Println("Attempting to automatically open the SSO authorization page in your default browser.")
+		fmt.Println("If the browser does not open or you wish to use a different device to authorize this request, open the following URL:")
 		fmt.Println(authInfo.VerificationURI)
 		fmt.Println("Then enter the code:")
 		fmt.Println(authInfo.UserCode)
@@ -63,12 +59,9 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-
-		time.Sleep(time.Second * 10)
-
-		token, err := authoriser.CreateToken(clientCreds, authInfo, startURL, region, time.Now())
+		token, err := authoriser.CreateToken(clientCreds, authInfo, startURL, region, time.Now().Truncate(0).UTC())
 		if err != nil {
-			return fmt.Errorf("failed to get access token %w", err)
+			return fmt.Errorf("failed to get access token: %w", err)
 		}
 
 		fmt.Println("Successfully got token!")

@@ -20,6 +20,7 @@ var infoCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defaultConfig, err := config.LoadDefaultConfig(context.TODO(),
 			config.WithRegion("ap-southeast-2"),
+			config.WithSharedConfigProfile(profile),
 		)
 		if err != nil {
 			return err
