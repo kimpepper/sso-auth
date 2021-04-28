@@ -2,19 +2,12 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/skpr/sso-auth/pkg/oidc"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/config"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
+	cache "github.com/skpr/sso-auth/pkg/cache"
 	"github.com/spf13/cobra"
-)
 
-const (
-	ClientNamePrefix       = "skpr"
-	ClientRegistrationType = "public"
+	"github.com/skpr/sso-auth/pkg/oidc"
 )
 
 // registerCmd represents the register command
@@ -22,22 +15,25 @@ var registerCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Register the SSO Client",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.LoadDefaultConfig(context.TODO())
+		cfg, err := awsconfig.LoadDefaultConfig(context.TODO(), awsconfig.WithSharedConfigProfile(profile))
 		if err != nil {
 			return err
 		}
 		ssooidcClient := ssooidc.NewFromConfig(cfg)
-		registrar := oidc.NewClientLoader(ssooidcClient)
-		clientCreds, err := registrar.RegisterClient()
+		clientCredsCache := cache.NewClientCredsCache()
+		clientCredsLoader := oidc.NewClientLoader(clientCredsCache, ssooidcClient)
+
+		_, err = clientCredsLoader.RegisterClient(region)
 		if err != nil {
 			return err
 		}
-
-
+		return nil
 	},
 }
 
 func init() {
+	registerCmd.PersistentFlags().StringVar(&region, "region", "ap-southeast-2", "The AWS region")
+
 	rootCmd.AddCommand(registerCmd)
 
 	// Here you will define your flags and configuration settings.

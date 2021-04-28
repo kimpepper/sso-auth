@@ -1,54 +1,65 @@
 package cache
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/skpr/sso-auth/pkg/types"
 )
 
-// TokenCache handles caching oauth2 types.TokenInfo.
-type TokenCache struct {
-	cacheFile string
+// TokenCache handles caching oauth2 types.Token.
+type TokenCache struct{}
+
+var defaultCacheLocation func() string
+
+func defaultCacheLocationImpl() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".aws", "sso", "cache")
+}
+
+func init() {
+	defaultCacheLocation = defaultCacheLocationImpl
 }
 
 // NewTokenCache creates a new instance.
-func NewTokenCache(filename string) *TokenCache {
-	return &TokenCache{
-		cacheFile: filename,
-	}
+func NewTokenCache() *TokenCache {
+	return &TokenCache{}
 }
 
 // Get will return the oauth token from cache.
-func (c *TokenCache) Get() (*types.TokenInfo, error) {
+func (c *TokenCache) Get(startURL string) (*types.Token, error) {
+	key, err := getTokenFileName(startURL)
+	var token *types.Token
 
-	var tokenInfo *types.TokenInfo
-
-	if _, err := os.Stat(c.cacheFile); os.IsNotExist(err) {
-		return &types.TokenInfo{}, err
-	}
-
-	data, err := ioutil.ReadFile(c.cacheFile)
+	cacheFile := filepath.Join(defaultCacheLocation(), key)
+	data, err := ioutil.ReadFile(cacheFile)
 	if err != nil {
-		return &types.TokenInfo{}, err
+		return &types.Token{}, err
 	}
 
-	err = json.Unmarshal(data, &tokenInfo)
+	err = json.Unmarshal(data, &token)
 	if err != nil {
-		return &types.TokenInfo{}, err
+		return &types.Token{}, err
 	}
 
-	return tokenInfo, nil
+	return token, nil
 }
 
 // Put writes an oauth token to cache.
-func (c *TokenCache) Put(token *types.TokenInfo) error {
+func (c *TokenCache) Put(token *types.Token) error {
+
+	key, err := getTokenFileName(token.StartURL)
+	cacheFile := filepath.Join(defaultCacheLocation(), key)
 
 	// Create parent directory if it doesn't exist.
-	if _, err := os.Stat(c.cacheFile); os.IsNotExist(err) {
-		dir := path.Dir(c.cacheFile)
+	if _, err := os.Stat(cacheFile); os.IsNotExist(err) {
+		dir := path.Dir(cacheFile)
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
 			return err
@@ -60,7 +71,7 @@ func (c *TokenCache) Put(token *types.TokenInfo) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(c.cacheFile, data, 0644)
+	err = ioutil.WriteFile(cacheFile, data, 0644)
 	if err != nil {
 		return err
 	}
@@ -68,11 +79,22 @@ func (c *TokenCache) Put(token *types.TokenInfo) error {
 	return nil
 }
 
-// Delete the cache file.
-func (c *TokenCache) Delete(token *types.TokenInfo) error {
-	err := os.Remove(c.cacheFile)
+// Invalidate the cache file.
+func (c *TokenCache) Invalidate(startURL string) error {
+	key, err := getTokenFileName(startURL)
+	cacheFile := filepath.Join(defaultCacheLocation(), key)
+	err = os.Remove(cacheFile)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func getTokenFileName(url string) (string, error) {
+	hash := sha1.New()
+	_, err := hash.Write([]byte(url))
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(hex.EncodeToString(hash.Sum(nil))) + ".json", nil
 }

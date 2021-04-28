@@ -9,27 +9,24 @@ type SSOConfig struct {
 	StartURL  string
 }
 
-type TokenInfo struct {
+type Token struct {
 	AccessToken string    `json:"accessToken"`
-	StartURL    string    `json:"startUrl"`
-	Region      string    `json:"region"`
 	ExpiresAt   time.Time `json:"expiresAt"`
+	StartURL    string    `json:"startUrl,omitempty"`
+	Region      string    `json:"region,omitempty"`
 }
 
-func (t *TokenInfo) Expired() bool {
-	return t.ExpiresAt.Before(time.Now())
+func (t *Token) Expired() bool {
+	return time.Now().Round(0).After(t.ExpiresAt)
 }
 
 type ClientCreds struct {
-	// The endpoint where the client can request authorization.
-	AuthorizationEndpoint string `json:"-"`
-
 	// The unique identifier string for each client. This client uses this identifier
 	// to get authenticated by the service in subsequent calls.
 	ClientId string `json:"clientId"`
 
 	// Indicates the time at which the clientId and clientSecret were issued.
-	IssuedAt time.Time
+	IssuedAt time.Time `json:"issuedAt,omitempty"`
 
 	// A secret string generated for the client. The client will use this string to get
 	// authenticated by the service in subsequent calls.
@@ -37,13 +34,10 @@ type ClientCreds struct {
 
 	// Indicates the time at which the clientId and clientSecret will become invalid.
 	ExpiresAt time.Time `json:"expiresAt"`
-
-	// The endpoint where the client can get an access token.
-	TokenEndpoint string `json:"-"`
 }
 
 func (t *ClientCreds) Expired() bool {
-	return t.ExpiresAt.Before(time.Now())
+	return time.Now().Round(0).After(t.ExpiresAt)
 }
 
 type AuthInfo struct {

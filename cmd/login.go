@@ -2,54 +2,83 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"time"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
+	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/cobra"
+
+	"github.com/skpr/sso-auth/pkg/cache"
+	"github.com/skpr/sso-auth/pkg/oidc"
 )
 
 // loginCmd represents the login command
 var loginCmd = &cobra.Command{
-	Use:   "login",
+	Use: "login",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithSharedConfigProfile(profile))
-		if err != nil {
-			return err
-		}
-		stsClient := sts.NewFromConfig(cfg)
-		output, err := stsClient.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
-		if err != nil {
-			return err
-		}
-		fmt.Println("UserID: ", *output.UserId)
-		fmt.Println("Account:", *output.Account)
-		fmt.Println("Arn:", *output.Arn)
 
-		s3Client := s3.NewFromConfig(cfg)
-		listOutput, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
+		clientCredsCache := cache.NewClientCredsCache()
+		clientCreds, err := clientCredsCache.Get(region)
+		if err != nil {
+			return fmt.Errorf("could not load client credentials. Try register first: %w", err)
+		}
+		if clientCreds.Expired() {
+			return errors.New("client credentials have expired. Try register first")
+		}
+		cfg, err := awsconfig.LoadDefaultConfig(context.TODO(), awsconfig.WithSharedConfigProfile(profile))
 		if err != nil {
 			return err
 		}
-		fmt.Println("Buckets:")
-		for _, bucket := range listOutput.Buckets {
-			fmt.Println("  -", *bucket.Name)
+
+		var ssoidcRetryer aws.Retryer
+		ssoidcRetryer = retry.NewStandard()
+		ssoidcRetryer = retry.AddWithErrorCodes(ssoidcRetryer, "AuthorizationPendingException")
+		ssooidcClient := ssooidc.NewFromConfig(cfg, func(opts *ssooidc.Options) {
+			opts.Retryer = ssoidcRetryer
+		})
+		tokenCache := cache.NewTokenCache()
+		authoriser := oidc.NewAuthoriser(ssooidcClient, tokenCache)
+
+		authInfo, err := authoriser.AuthoriseClient(clientCreds, startURL, time.Now())
+		if err != nil {
+			return err
 		}
+
+		fmt.Println(
+			`Attempting to automatically open the SSO authorization page in 
+	your default browser.
+	If the browser does not open or you wish to use a different 
+	device to authorize this request, open the following URL:`)
+		fmt.Println(authInfo.VerificationURI)
+		fmt.Println("Then enter the code:")
+		fmt.Println(authInfo.UserCode)
+		time.Sleep(1 * time.Second)
+		err = open.Run(authInfo.VerificationURIComplete)
+		if err != nil {
+			return err
+		}
+
+
+		time.Sleep(time.Second * 10)
+
+		token, err := authoriser.CreateToken(clientCreds, authInfo, startURL, region, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to get access token %w", err)
+		}
+
+		fmt.Println("Successfully got token!")
+		fmt.Println("AccessToken:", token.AccessToken)
+		fmt.Println("ExpiresAt:", token.ExpiresAt)
+
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(loginCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// loginCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// loginCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

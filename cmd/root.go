@@ -4,7 +4,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var profile string
+var (
+	profile   string
+	startURL  string
+	region    string
+	accountID string
+	roleName  string
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -20,4 +26,8 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "AWS credentials profile")
+	rootCmd.PersistentFlags().StringVar(&startURL, "start-url", "", "The SSO start URL")
+	rootCmd.PersistentFlags().StringVar(&region, "region", "ap-southeast-2", "The AWS region")
+	rootCmd.PersistentFlags().StringVar(&accountID, "account-id", "", "The AWS account ID")
+	rootCmd.PersistentFlags().StringVar(&roleName, "role-name", "", "The AWS role name")
 }
